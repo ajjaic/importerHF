@@ -16,15 +16,16 @@ import hmac
 import string
 import xmltodict
 import json
+import datetime
 
-"""
-The handles kApi and hApi are for communicating with the
-Kayako and Happyfox APIs respectively.
-"""
+"""#{{{
+The handle kApi is for communicating with the
+Kayako API respectively.
+"""#}}}
 kApi = KayakoAPI(KAYAKO_API_URL, KAYAKO_API_KEY, KAYAKO_SECRET_KEY)
-hApi = dict(auth=(HF_API_KEY, HF_AUTH_KEY))
+hApi = (HF_API_KEY, HF_AUTH_KEY)
 
-def getKayakoSignature():
+def getKayakoSignature():#{{{
     """
     This functions creates a random salt and hashes the salt
     with KAYAKO_SECRET_KEY. This is required only if directly
@@ -34,70 +35,115 @@ def getKayakoSignature():
     salt = ''.join([random.choice(string.ascii_letters+string.digits) for _ in range(30)])
     signature = hmac.new(KAYAKO_SECRET_KEY, msg=salt, digestmod=hashlib.sha256).digest()
     encodedSignature = base64.b64encode(signature)
-    return salt, encodedSignature
+    return salt, encodedSignature#}}}
 
-def postToHappyFox(endpoint, payload):
+def postToHappyFox(endpoint, payload):#{{{
+    """
+    Makes post requests to the happyfox URL
+    """
     url = HF_API_URL + endpoint
     headers = { "Content-Type": "application/json" }
     response = requests.post(url,
                 data=payload,
                 headers=headers,
                 auth=(HF_API_KEY, HF_AUTH_KEY))
-    return response
+    return response#}}}
 
-def getFromKayako(endpoint):
+def getFromKayako(endpoint):#{{{
+    """
+    Makes get requests to the Kayako URL
+    """
     salt, signature = getKayakoSignature()
     payload = dict(apikey=KAYAKO_API_KEY, e=endpoint, salt=salt, signature=signature)
-    return requests.get(KAYAKO_API_URL, params=payload)
+    return requests.get(KAYAKO_API_URL, params=payload)#}}}
 
 
-class Contact(object):
-    """
-    The Contact class is used for manipulating contacts on both
+class Contacts(object):
+    """#{{{
+    The Contacts class is used for manipulating contacts on both
     Kayako and Happyfox. The kayako related methods start with
     'k' and the happyfox related methods start with 'h'.
-    """
-    def __init__(self):
-        self.kayako_users = dict()
-        self.happyfox_contacts = dict()
+    """#}}}
 
-    def kXMLContactsToDict(self, responsetext):
-        u = xmltodict.parse(responsetext)['users']['user']
-        for i, u in enumerate(u):
-            self.kayako_users[i+1] = dict(u)
+    #def _kXMLContactsToDict(self, responsetext):#{{{
+        #u = xmltodict.parse(responsetext)['users']['user']
+        #for i, u in enumerate(u):
+            #self.kayako_users[i+1] = dict(u)#}}}
 
-    def prepareHFContacts(self):
-        for k, v in self.kayako_users.items():
-            self.happyfox_contacts[k] = dict(name=v['fullname'], email=v['email'])
+    #def kGetContactsInRange(self, fromindex=1, toindex=1000):#{{{
+        #endpoint = '/Base/User/Filter/{0}/{1}'.format(fromindex, toindex)
+        #response = getFromKayako(endpoint)
+        #self._kXMLContactsToDict(response.text)
+        #return self.kayako_users#}}}
 
-    def kGetContactsInRange(self, fromindex=1, toindex=1000):
-        endpoint = '/Base/User/Filter/{0}/{1}'.format(fromindex, toindex)
-        response = getFromKayako(endpoint)
-        self.kXMLContactsToDict(response.text)
-        return self.kayako_users
-
-    def kGetAllContacts(self):
+    def _kGetAllContacts(self):
         endpoint = '/Base/User/Filter'
         response = getFromKayako(endpoint)
-        self.kXMLContactsToDict(response.text)
-        return self.kayako_users
+        u = xmltodict.parse(response.text)['users']['user']
+        kayako_users = dict()
+        for i, u in enumerate(u, 1):
+            kayako_users[i] = dict(u)
+        return kayako_users
 
-    def hCreateBulkContacts(self):
-        jsonpayload = json.dumps(self.happyfox_contacts.values())
+    def hCreateAllContacts(self):
+        kayako_users = self._kGetAllContacts()
+        happyfox_contacts = dict()
+        for k, v in kayako_users.items():
+            happyfox_contacts[k] = dict(name=v['fullname'], email=v['email'])
+        jsonpayload = json.dumps(happyfox_contacts.values())
         return postToHappyFox('users/', jsonpayload)
 
     def hGetContacts():
         pass
 
+class Departments(object):
+    def kGetAllDepartments(self):
+       return kApi.get_all(Department)
+
+class Tickets(object):
+
+    def _kGetAllTickets(self):
+        import pudb; pu.db
+        import shelve
+        s = shelve.open('../main.hg/tempdata')
+        tkts = s['tkts']
+        s.close()
+        return tkts
+
+        depts = Departments().kGetAllDepartments()
+        kayako_tickets = list()
+        for d in depts:
+            kayako_tickets.extend(kApi.get_all(Ticket, d.id))
+        return kayako_tickets
+
+    def hCreateAllTickets(self):
+        kayako_tickets = self._kGetAllTickets()
+        hf_dict_tkts = list()
+        for t in kayako_tickets:
+            hf_tkt = dict(created_at=t.creationtime,
+                            subject=t.subject,
+                            text=t.subject,
+                            category=1,
+                            priority=1,
+                            email=t.email,
+                            name=t.fullname)
+            hf_dict_tkts.append(hf_tkt)
+        endpoint = 'tickets/'
+        payload = json.dumps(hf_dict_tkts, cls=DateEncoder)
+        return postToHappyFox(endpoint, payload)
+
+class DateEncoder(json.JSONEncoder):
+    def default(self, obj):
+        if isinstance(obj, datetime.datetime):
+            return obj.strftime("%Y-%m-%dT%H:%M:%S")
+        return json.JSONEncoder.default(self, obj)
+
 def main():
-    c = Contact()
-    #c.kGetAllContacts()
-    import shelve
-    s = shelve.open('../main.hg/tempdata')
-    c.kayako_users = s['kayako_users']
-    s.close()
-    c.prepareHFContacts()
-    r = c.hCreateBulkContacts()
-    print r.text
+    #createContacts
+
+    #createTickets
+    Tickets().hCreateAllTickets()
+
 
 main()
+
