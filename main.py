@@ -48,6 +48,8 @@ def postToHappyFox(endpoint, payload):#{{{
                 headers=headers,
                 auth=(HF_API_KEY, HF_AUTH_KEY))
     return response#}}}
+def getFromHappyFox(endpoint):
+    return requests.get(HF_API_URL + endpoint, auth=hApi)
 
 def getFromKayako(endpoint):#{{{
     """
@@ -58,7 +60,7 @@ def getFromKayako(endpoint):#{{{
     return requests.get(KAYAKO_API_URL, params=payload)#}}}
 
 
-class Contacts(object):
+class Contacts(object):#{{{
     """#{{{
     The Contacts class is used for manipulating contacts on both
     Kayako and Happyfox. The kayako related methods start with
@@ -94,43 +96,60 @@ class Contacts(object):
         return postToHappyFox('users/', jsonpayload)
 
     def hGetContacts():
-        pass
+        pass#}}}
 
 class Departments(object):
     def kGetAllDepartments(self):
-       return kApi.get_all(Department)
+        return kApi.get_all(Department)
+
+    def hGetAllCategories(self):
+        return getFromHappyFox("categories/")
+
 
 class Tickets(object):
 
     def _kGetAllTickets(self):
-        import pudb; pu.db
-        import shelve
-        s = shelve.open('../main.hg/tempdata')
-        tkts = s['tkts']
-        s.close()
-        return tkts
+        #import pudb; pu.db
+        #import shelve
+        #s = shelve.open('../main.hg/tempdata')
+        #tkts = s['tkts']
+        #s.close()
+        #return tkts
 
         depts = Departments().kGetAllDepartments()
         kayako_tickets = list()
+        kayako_departments = dict()
         for d in depts:
             kayako_tickets.extend(kApi.get_all(Ticket, d.id))
-        return kayako_tickets
+            kayako_departments[d.id] = d.title
+        return kayako_departments, kayako_tickets
+
+    def _kGetTicketUpdates(self):
+        pass
 
     def hCreateAllTickets(self):
-        kayako_tickets = self._kGetAllTickets()
+        kayako_departments, kayako_tickets = self._kGetAllTickets()
+        happyfox_category = dict()
+        for category in getFromHappyFox('categories/').json():
+            happyfox_category[category['name']] = category['id']
+
         hf_dict_tkts = list()
-        for t in kayako_tickets:
+        for i, t in enumerate(kayako_tickets, 1):
             hf_tkt = dict(created_at=t.creationtime,
                             subject=t.subject,
                             text=t.subject,
-                            category=1,
+                            category=happyfox_category[kayako_departments[t.departmentid]],
                             priority=1,
                             email=t.email,
                             name=t.fullname)
+            hf_tkt['t-cf-1'] = t.id
             hf_dict_tkts.append(hf_tkt)
+            print "Completed imported ticket {0}".format(t.id)
+            print "Completed {0}/{1}".format(i, len(kayako_tickets))
         endpoint = 'tickets/'
         payload = json.dumps(hf_dict_tkts, cls=DateEncoder)
         return postToHappyFox(endpoint, payload)
+
 
 class DateEncoder(json.JSONEncoder):
     def default(self, obj):
@@ -140,6 +159,7 @@ class DateEncoder(json.JSONEncoder):
 
 def main():
     #createContacts
+    Contacts().hCreateAllContacts()
 
     #createTickets
     Tickets().hCreateAllTickets()
