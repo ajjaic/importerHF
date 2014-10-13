@@ -8,7 +8,11 @@ from kayako import (KayakoAPI,
                     User,
                     Department,
                     Ticket,
-                    Staff)
+                    Staff,
+                    TicketPost,
+                    TicketAttachment)
+import tempfile
+import os
 import requests
 import hashlib
 import random
@@ -38,16 +42,22 @@ def getKayakoSignature():#{{{
     encodedSignature = base64.b64encode(signature)
     return salt, encodedSignature#}}}
 
-def postToHappyFox(endpoint, payload):#{{{
+def postToHappyFox(endpoint, payload, files=None):#{{{
     """
     Makes post requests to the happyfox URL
     """
     url = HF_API_URL + endpoint
-    headers = { "Content-Type": "application/json" }
-    response = requests.post(url,
-                data=payload,
-                headers=headers,
-                auth=(HF_API_KEY, HF_AUTH_KEY))
+    if not files:
+        response = requests.post(url,
+                    data=payload,
+                    #headers={ "Content-Type": "application/json" },
+                    auth=(HF_API_KEY, HF_AUTH_KEY))
+    else:
+        response = requests.post(url,
+                    data=payload,
+                    #headers = { "Content-Type": "multipart/form-data" },
+                    files=files,
+                    auth=(HF_API_KEY, HF_AUTH_KEY))
     return response#}}}
 def getFromHappyFox(endpoint):
     return requests.get(HF_API_URL + endpoint, auth=hApi)
@@ -93,18 +103,19 @@ class Contacts(object):#{{{
         happyfox_contacts = dict()
         for k, v in kayako_users.items():
             happyfox_contacts[k] = dict(name=v['fullname'], email=v['email'])
-        jsonpayload = json.dumps(happyfox_contacts.values())
-        return kayako_users.values(), postToHappyFox('users/', jsonpayload)
+        #jsonpayload = json.dumps(happyfox_contacts.values())
+        #return kayako_users.values(), postToHappyFox('users/', jsonpayload)
+        return kayako_users.values(), postToHappyFox('users/', happyfox_contacts.values())
 
     def hGetContacts():
         pass#}}}
 
-class Departments(object):
+class Departments(object):#{{{
     def kGetAllDepartments(self):
         return kApi.get_all(Department)
 
     def hGetAllCategories(self):
-        return getFromHappyFox("categories/")
+        return getFromHappyFox("categories/")#}}}
 
 
 class Tickets(object):
@@ -143,9 +154,9 @@ class Tickets(object):
         for c in pageinfo['data']:
             happyfox_contacts[c['name']] = c['id']
 
-        if page_count > 1:
-            for page in xrange(2, page_count+1)
-                for c in getFromHappyFox('users/?size=50&page{0}'.format(page)).json()['data']
+        if pagecount > 1:
+            for page in xrange(2, page_count+1):
+                for c in getFromHappyFox('users/?size=50&page{0}'.format(page)).json()['data']:
                     happyfox_contacts[c['name']] = c['id']
         return happyfox_contacts
 
@@ -156,25 +167,35 @@ class Tickets(object):
         return kayako_users
 
     def hCreateAllTickets(self):
-        #Tickets and departments/categories from kayako
-        kayako_departments, kayako_tickets = self._kGetAllTickets()
+##        #Tickets and departments/categories from kayako
+##        kayako_departments, kayako_tickets = self._kGetAllTickets()
+##
+##        #Get all categories from hf and put in a dict
+##        happyfox_category = dict()
+##        for category in getFromHappyFox('categories/').json():
+##            happyfox_category[category['name']] = category['id']
+##
+##        #Get happyfox and kayako staff
+##        happyfox_staff, kayako_staff = self._hGetAllStaff(), self._kGetAllStaff()
+##
+##        #Get happyfox contacts and kayako users
+##        happyfox_contacts, kayako_users = self._hGetAllContacts(), self._kGetAllUsers()
 
-        #Get all categories from hf and put in a dict
+
+        kayako_departments = getfromshelve('kayako_departments')
+        kayako_tickets = getfromshelve('kayako_tickets')
+        kayako_staff = getfromshelve('kayako_staff')
+        kayako_users = getfromshelve('kayako_users')
+        happyfox_staff = self._hGetAllStaff()
+        happyfox_contacts = self._hGetAllContacts()
         happyfox_category = dict()
         for category in getFromHappyFox('categories/').json():
             happyfox_category[category['name']] = category['id']
 
-        #Get happyfox and kayako staff
-        happyfox_staff, kayako_staff = self._hGetAllStaff(), self._kGetAllStaff()
-
-        #Get happyfox contacts and kayako users
-        happyfox_contacts, kayako_users = _hGetAllContacts(), _kGetAllUsers()
-
-        hf_dict_tkts = list()
-        hf_dict_tkt_updates = list()
+        len_kayako_tickets = len(kayako_tickets)
         for i, t in enumerate(kayako_tickets, 1):
             kayako_ticketupdates = self._kGetTicketUpdates(t.id)
-            hf_tkt = dict(created_at=t.creationtime,
+            hf_tkt = dict(created_at=t.creationtime.strftime("%Y-%m-%dT%H:%M:%S"),
                             subject=t.subject,
                             text=kayako_ticketupdates[0].contents,
                             category=happyfox_category[kayako_departments[t.departmentid]],
@@ -182,30 +203,85 @@ class Tickets(object):
                             email=t.email,
                             name=t.fullname)
             hf_tkt['t-cf-1'] = t.id
-            hf_dict_tkts.append(hf_tkt)
 
-            for ku in kayako_ticketupdates:
+            #Get this tickets attachments
+            kayako_ticket_attachments = kApi.get_all(TicketAttachment, t.id)
+
+            #Post attachment while ticket creation
+            #TODO
+            for attachment in kayako_ticket_attachments:
+                first_update = kayako_ticketupdates[0]
+                if first_update.id == attachment.ticketpostid:
+                    m = kApi.get(TicketAttachment, t.id, attachment.id)
+
+            happyfox_attachments = dict()
+            hf_tkt_updates = list()
+            for ku in kayako_ticketupdates[1:]:
                 hf_tkt_update = dict()
                 if ku.staffid:
                     hf_tkt_update['staff'] = happyfox_staff[kayako_staff[ku.staffid]]
-                    hf_tkt_update['text'] = ku.contents
                 else:
                     hf_tkt_update['user'] = happyfox_contacts[kayako_users[str(ku.userid)]]
-                    hf_tkt_update['text'] = ku.contents
 
-            print "Completed imported ticket {0}".format(t.id)
-            print "Completed {0}/{1}".format(i, len(kayako_tickets))
+                hf_tkt_update['text'] = ku.contents
+                hf_tkt_update['timestamp'] = ku.dateline.strftime("%Y-%m-%dT%H:%M:%S")
+                hf_tkt_update['id'] = ku.id
 
-        endpoint = 'tickets/'
-        payload = json.dumps(hf_dict_tkts, cls=DateEncoder)
-        return postToHappyFox(endpoint, payload)
+                hf_tkt_updates.append(hf_tkt_update)
 
 
-class DateEncoder(json.JSONEncoder):
-    def default(self, obj):
-        if isinstance(obj, datetime.datetime):
-            return obj.strftime("%Y-%m-%dT%H:%M:%S")
-        return json.JSONEncoder.default(self, obj)
+                for attachment in kayako_ticket_attachments:
+                    if ku.id == attachment.ticketpostid:
+                        m = kApi.get(TicketAttachment, t.id, attachment.id)
+                        tempfile = create_temporary_file(m.filename, base64.b64decode(m.contents))
+                        tupfile = ('attachments', (m.filename, open(tempfile, 'rb'), m.filetype))
+                        if not happyfox_attachments.has_key(ku.id):
+                            happyfox_attachments[ku.id] = [tupfile]
+                        else:
+                            happyfox_attachments[ku.id].append(tupfile)
+
+
+
+            #Post the ticket first
+            endpoint = 'tickets/'
+            #payload = json.dumps([(hf_tkt)], cls=DateEncoder)
+            #response = postToHappyFox(endpoint, payload)
+            response = postToHappyFox(endpoint, hf_tkt)
+            #ticketid = response.json()[0]['id']
+            ticketid = response.json()['id']
+
+            #Now post the tickets updates
+            for u in hf_tkt_updates:
+                if u.has_key('staff'):
+                    endpoint = 'ticket/{0}/staff_update/'.format(ticketid)
+                else:
+                    endpoint = 'ticket/{0}/user_reply/'.format(ticketid)
+                uid = u['id']
+                del u['id']
+                #payload = json.dumps(u, cls=DateEncoder)
+                if happyfox_attachments.has_key(uid):
+                    #response = postToHappyFox(endpoint, payload, files=happyfox_attachments[uid])
+                    response = postToHappyFox(endpoint, u, files=happyfox_attachments[uid])
+                else:
+                    #postToHappyFox(endpoint, payload)
+                    postToHappyFox(endpoint, u)
+
+            #print "Completed imported ticket {0}".format(ticketid)
+            print "Completed {0}/{1}".format(i, len_kayako_tickets)
+
+#class DateEncoder(json.JSONEncoder):
+    #def default(self, obj):
+        #if isinstance(obj, datetime.datetime):
+            #return obj.strftime("%Y-%m-%dT%H:%M:%S")
+        #return json.JSONEncoder.default(self, obj)
+
+def create_temporary_file(filename, contents):
+    path = os.path.join(tempfile.gettempdir(), "KayakoImport", HF_API_KEY) + os.sep
+    if not os.path.exists(path):
+        os.makedirs(path)
+    with open(path + filename, 'w') as f:
+        f.write(contents)
+    return path+filename
 
 def main():
     #createContacts
@@ -214,5 +290,21 @@ def main():
     #createTickets
     Tickets(kayako_users).hCreateAllTickets()
 
+def nomain():
+    kayako_users = getfromshelve('kayako_users')
+    Tickets(kayako_users).hCreateAllTickets()
 
-main()
+def getfromshelve(varname):
+    import shelve
+    s = shelve.open('../main.hg/tempdata')
+    varvalue = s[varname]
+    s.close()
+    return varvalue
+
+def putinshelve(varname, varvalue):
+    import shelve
+    s = shelve.open('../main.hg/tempdata')
+    s[varname] = varvalue
+    s.close()
+
+nomain()
