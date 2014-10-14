@@ -9,7 +9,8 @@ from kayako import (KayakoAPI,
                     Department,
                     Ticket,
                     TicketPost,
-                    TicketAttachment)
+                    TicketAttachment,
+                    TicketNote)
 import requests
 import shelve
 

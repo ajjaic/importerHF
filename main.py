@@ -1,4 +1,4 @@
-from config import (KAYAKO_API_URL,
+from config import (KAYAKO_API_URL,#{{{
                     KAYAKO_API_KEY,
                     KAYAKO_SECRET_KEY,
                     HF_API_URL,
@@ -10,7 +10,8 @@ from kayako import (KayakoAPI,
                     Ticket,
                     Staff,
                     TicketPost,
-                    TicketAttachment)
+                    TicketAttachment,
+                    TicketNote)
 import tempfile
 import os
 import requests
@@ -21,7 +22,7 @@ import hmac
 import string
 import xmltodict
 import json
-import datetime
+import datetime#}}}
 
 """#{{{
 The handle kApi is for communicating with the
@@ -78,17 +79,6 @@ class Contacts(object):#{{{
     'k' and the happyfox related methods start with 'h'.
     """#}}}
 
-    #def _kXMLContactsToDict(self, responsetext):#{{{
-        #u = xmltodict.parse(responsetext)['users']['user']
-        #for i, u in enumerate(u):
-            #self.kayako_users[i+1] = dict(u)#}}}
-
-    #def kGetContactsInRange(self, fromindex=1, toindex=1000):#{{{
-        #endpoint = '/Base/User/Filter/{0}/{1}'.format(fromindex, toindex)
-        #response = getFromKayako(endpoint)
-        #self._kXMLContactsToDict(response.text)
-        #return self.kayako_users#}}}
-
     def _kGetAllContacts(self):
         endpoint = '/Base/User/Filter'
         response = getFromKayako(endpoint)
@@ -122,7 +112,7 @@ class Tickets(object):
     def __init__(self, kayako_users):
         self.kayako_users = kayako_users
 
-    def _kGetAllTickets(self):
+    def _kGetAllTickets(self):#{{{
         depts = Departments().kGetAllDepartments()
         kayako_tickets = list()
         kayako_departments = dict()
@@ -164,7 +154,7 @@ class Tickets(object):
         kayako_users = dict()
         for ku in self.kayako_users:
             kayako_users[ku['id']] = ku['fullname']
-        return kayako_users
+        return kayako_users#}}}
 
     def hCreateAllTickets(self):
 ##        #Tickets and departments/categories from kayako
@@ -207,14 +197,21 @@ class Tickets(object):
             #Get this tickets attachments
             kayako_ticket_attachments = kApi.get_all(TicketAttachment, t.id)
 
-            #Post attachment while ticket creation
-            #TODO
+            #Create the attachment tuples
+            happyfox_attachments = dict()
+
+            #Attachments to post during ticket creation
+            first_update = kayako_ticketupdates[0]
             for attachment in kayako_ticket_attachments:
-                first_update = kayako_ticketupdates[0]
                 if first_update.id == attachment.ticketpostid:
                     m = kApi.get(TicketAttachment, t.id, attachment.id)
+                    tempfile = create_temporary_file(m.filename, base64.b64decode(m.contents))
+                    tupfile = ('attachments', (m.filename, open(tempfile, 'rb'), m.filetype))
+                    if not happyfox_attachments.has_key(first_update.id):
+                        happyfox_attachments[first_update.id] = [tupfile]
+                    else:
+                        happyfox_attachments[first_update.id].append(tupfile)
 
-            happyfox_attachments = dict()
             hf_tkt_updates = list()
             for ku in kayako_ticketupdates[1:]:
                 hf_tkt_update = dict()
@@ -240,17 +237,29 @@ class Tickets(object):
                         else:
                             happyfox_attachments[ku.id].append(tupfile)
 
+            #Get all the ticket notes
+            kayako_ticketnotes = kApi.get_all(TicketNote, t.id)
+            hf_pvt_notes = list()
+            for kn in kayako_ticketnotes:
+                hf_pvt_note = dict()
+                hf_pvt_note['staff'] = happyfox_staff[kayako_staff[kn.creatorstaffid]]
+                hf_pvt_note['text'] = kn.contents
+                hf_pvt_note['timestamp'] = kn.creationdate.strftime("%Y-%m-%dT%H:%M:%S")
+
+                hf_pvt_notes.append(hf_pvt_note)
 
 
             #Post the ticket first
+            print "Posting ticket {0}/{1}".format(i, len_kayako_tickets)
             endpoint = 'tickets/'
-            #payload = json.dumps([(hf_tkt)], cls=DateEncoder)
-            #response = postToHappyFox(endpoint, payload)
-            response = postToHappyFox(endpoint, hf_tkt)
-            #ticketid = response.json()[0]['id']
+            if happyfox_attachments.has_key(first_update.id):
+                response = postToHappyFox(endpoint, hf_tkt, files=happyfox_attachments[first_update.id])
+            else:
+                response = postToHappyFox(endpoint, hf_tkt)
             ticketid = response.json()['id']
 
             #Now post the tickets updates
+            print "Posting updates of ticket {0}/{1}".format(i, len_kayako_tickets)
             for u in hf_tkt_updates:
                 if u.has_key('staff'):
                     endpoint = 'ticket/{0}/staff_update/'.format(ticketid)
@@ -258,22 +267,18 @@ class Tickets(object):
                     endpoint = 'ticket/{0}/user_reply/'.format(ticketid)
                 uid = u['id']
                 del u['id']
-                #payload = json.dumps(u, cls=DateEncoder)
                 if happyfox_attachments.has_key(uid):
-                    #response = postToHappyFox(endpoint, payload, files=happyfox_attachments[uid])
                     response = postToHappyFox(endpoint, u, files=happyfox_attachments[uid])
                 else:
-                    #postToHappyFox(endpoint, payload)
                     postToHappyFox(endpoint, u)
 
-            #print "Completed imported ticket {0}".format(ticketid)
-            print "Completed {0}/{1}".format(i, len_kayako_tickets)
+            #Now post all the private notes
+            print "Posting private notes of ticket {0}/{1}".format(i, len_kayako_tickets)
+            for pn in hf_pvt_notes:
+                endpoint = 'ticket/{0}/staff_pvtnote/'.format(ticketid)
+                postToHappyFox(endpoint, pn)
 
-#class DateEncoder(json.JSONEncoder):
-    #def default(self, obj):
-        #if isinstance(obj, datetime.datetime):
-            #return obj.strftime("%Y-%m-%dT%H:%M:%S")
-        #return json.JSONEncoder.default(self, obj)
+            print "Completed {0}/{1}".format(i, len_kayako_tickets)
 
 def create_temporary_file(filename, contents):
     path = os.path.join(tempfile.gettempdir(), "KayakoImport", HF_API_KEY) + os.sep
