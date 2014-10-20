@@ -321,14 +321,14 @@ def kGetAllPriority():
     priorities = kApi.get_all(TicketPriority)
     kayako_priority = dict()
     for p in priorities:
-        kayako_priority[p.id] = p.title
+        kayako_priority[p.id] = p.title.strip()
     return kayako_priority
 
 def kGetAllStatus():
     statuses = kApi.get_all(TicketStatus)
     kayako_status = dict()
     for s in statuses:
-        kayako_status[s.id] = s.title
+        kayako_status[s.id] = s.title.strip()
     return kayako_status
 
 #TODO: Fix contact custom field
@@ -343,10 +343,10 @@ def kGetAllUsers():
         emails = ku['email']
         ku_emails = emails.split(',') if type(ku['email']) != list else emails
         for email in ku_emails:
-            newuser = dict(name=ku['fullname'], email=email)
+            newuser = dict(name=ku['fullname'].strip(), email=email.strip())
             userphone = ku['phone']
             if userphone:
-                userphone = re.sub('[- .]', '', userphone)
+                userphone = re.sub('[- .]', '', userphone).strip()
                 if not PHONE_NUMBER_REGEXP.match(userphone):
                     newuser['c-cf-1'] = userphone
                 else:
@@ -358,7 +358,7 @@ def kGetAllDepartments():
     depts = kApi.get_all(Department)
     kayako_departments = dict()
     for d in depts:
-        kayako_departments[d.id] = d.title
+        kayako_departments[d.id] = d.title.strip()
     return kayako_departments
 
 def kGetAllTickets(k_status, k_departments):
@@ -372,7 +372,7 @@ def kGetAllStaff():
     staff = kApi.get_all(Staff)
     kayako_staff = dict()
     for s in staff:
-        kayako_staff[s.id] = s.firstname + ' ' + s.lastname
+        kayako_staff[s.id] = s.firstname.strip() + ' ' + s.lastname.strip()
     return kayako_staff
 
 def kGetTicketAttachment(ticketid, attachmentid):
@@ -438,7 +438,7 @@ def newmain():
         putInShelve('k_departments', k_departments)
     hf_categories = hGetAllCategories()
     to_sync = in_sync(k_departments, hf_categories)
-    if not to_sync:
+    if to_sync:
         requiredHFobjects(to_sync, 'categories')
         sys.exit()
 
@@ -452,7 +452,7 @@ def newmain():
         putInShelve('k_staff', k_staff)
     hf_staff, hf_admin = hGetAllStaff()
     to_sync = in_sync(k_staff, hf_staff)
-    if not to_sync:
+    if to_sync:
         requiredHFobjects(to_sync, 'staff members')
         sys.exit()
 
@@ -466,7 +466,7 @@ def newmain():
         putInShelve('k_status', k_status)
     hf_status = hGetAllStatus()
     to_sync = in_sync(k_status, hf_status)
-    if not to_sync:
+    if to_sync:
         requiredHFobjects(to_sync, 'statuses')
         sys.exit()
 
@@ -480,7 +480,7 @@ def newmain():
         putInShelve('k_priority', k_priority)
     hf_priority = hGetAllPriority()
     to_sync = in_sync(k_priority, hf_priority)
-    if not to_sync:
+    if to_sync:
         requiredHFobjects(to_sync, 'priorities')
         sys.exit()
 
@@ -534,7 +534,7 @@ def getFromShelve(varname):#{{{
     import shelve
     #s = shelve.open('../main.hg/tempdata')
     s = shelve.open('./tempdata')
-    varval = s.get(varname, None)
+    varvalue = s.get(varname, None)
     s.close()
     return varvalue
 
