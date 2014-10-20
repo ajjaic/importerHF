@@ -262,7 +262,7 @@ class Tickets(object):
             except:
                 errmsg = "Ticket with Kayako display id {0} has failed".format(t.displayid)
                 print errmsg
-                self.logfile.write(errmsg+'\n')
+                self.logfile.write(t.displayid+'\n')
 
 def create_temporary_file(filename, contents):
     path = os.path.join(tempfile.gettempdir(), "KayakoImport", HF_API_KEY) + os.sep
@@ -422,6 +422,7 @@ def newmain():
     #fromticket = 1
     #if len(sys.argv) == 2:
         #fromticket = int(sys.argv[1])
+
     """
     Change current directory to the directory of this script
     """
@@ -436,7 +437,7 @@ def newmain():
         k_departments = kGetAllDepartments()
         putInShelve('k_departments', k_departments)
     hf_categories = hGetAllCategories()
-    to_sync = in_sync(k_departments, hf_categories):
+    to_sync = in_sync(k_departments, hf_categories)
     if not to_sync:
         requiredHFobjects(to_sync, 'categories')
         sys.exit()
@@ -503,7 +504,8 @@ def newmain():
         putInShelve('k_tickets', k_tickets)
 
 
-    #len_kayako_tickets = len(k_tickets)
+    len_kayako_tickets = len(k_tickets)
+    fromticket = 1
     #if fromticket > 1:
         #k_tickets = k_tickets[fromticket:]
 
