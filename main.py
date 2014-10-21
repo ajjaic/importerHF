@@ -424,7 +424,9 @@ def newmain():
         #fromticket = int(sys.argv[1])
 
     """
-    Change current directory to the directory of this script
+    Change current directory to the directory of this script.
+    This is to ensure that the temporary files are created in
+    the directory in which this script is executing
     """
     os.chdir(os.path.dirname(os.path.abspath(__file__)))
 
