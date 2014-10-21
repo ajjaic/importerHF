@@ -505,6 +505,20 @@ def newmain():
         k_tickets = kGetAllTickets(k_status, k_departments)
         putInShelve('k_tickets', k_tickets)
 
+    """
+    Contact and Ticket custom fields
+    """
+    print "The following customfields are required:"
+    print "Ticket CustomField"
+    print "     Name: KayakoDisplayID"
+    print "     Type: Text"
+    print "Contact CustomField"
+    print "     Name: PhoneNumber"
+    print "     Type: Text"
+
+    if raw_input("Proceed (y/n)?") != y:
+        sys.exit()
+
 
     len_kayako_tickets = len(k_tickets)
     fromticket = 1
