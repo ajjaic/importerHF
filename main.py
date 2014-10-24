@@ -430,6 +430,9 @@ def newmain():
     """
     os.chdir(os.path.dirname(os.path.abspath(__file__)))
 
+    if os.path.exists('./tempdata'):
+        print "Using existing tempdata file\n"
+
     """
     Kayako Departments and Happyfox Categories
     """
