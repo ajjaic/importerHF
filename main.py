@@ -365,7 +365,7 @@ def kGetAllTickets(k_status, k_departments):
     kayako_tickets = list()
     for d in k_departments:
         for s in k_status.keys():
-            kayako_tickets.extend(kApi.get_all(Ticket, d.id, ticketstatusid=s))
+            kayako_tickets.extend(kApi.get_all(Ticket, d, ticketstatusid=s))
     return kayako_tickets
 
 def kGetAllStaff():
@@ -419,9 +419,10 @@ def newmain():
 
     #if raw_input("Proceed(y/n)?") != 'y':
         #sys.exit()
-    #fromticket = 1
-    #if len(sys.argv) == 2:
-        #fromticket = int(sys.argv[1])
+    fromticket = 1
+    if len(sys.argv) == 2:
+        fromticket = int(sys.argv[1])
+    print "Starting from ticket {0}".format(fromticket)
 
     """
     Change current directory to the directory of this script.
@@ -431,8 +432,25 @@ def newmain():
     os.chdir(os.path.dirname(os.path.abspath(__file__)))
 
     if os.path.exists('./tempdata'):
-        print "A 'tempdata' file exists in the current directory."
-        print "Using existing 'tempdata' file\n"
+        print "A './tempdata' file exists in the current directory."
+        useexisting = raw_input("Using existing './tempdata' file (y/n)\n")
+        if useexisting != 'y':
+            os.remove('./tempdata')
+            print "Deleted './tempdata'"
+
+    """
+    Contact and Ticket custom fields
+    """
+    print "The following customfields are required:"
+    print "Ticket CustomField"
+    print "     Name: KayakoDisplayID"
+    print "     Type: Text"
+    print "Contact CustomField"
+    print "     Name: PhoneNumber"
+    print "     Type: Text"
+
+    if raw_input("Proceed (y/n)?") != 'y':
+        sys.exit()
 
     """
     Kayako Departments and Happyfox Categories
@@ -498,7 +516,9 @@ def newmain():
     if not k_users:
         k_users = kGetAllUsers()
         putInShelve('k_users', k_users)
-    hf_contacts = hGetAllContacts(k_users)
+    hf_contacts = getFromShelve('hf_contacts')
+    if not hf_contacts:
+        hf_contacts = hGetAllContacts(k_users)
 
     """
     Kayako Tickets
@@ -509,25 +529,10 @@ def newmain():
         k_tickets = kGetAllTickets(k_status, k_departments)
         putInShelve('k_tickets', k_tickets)
 
-    """
-    Contact and Ticket custom fields
-    """
-    print "The following customfields are required:"
-    print "Ticket CustomField"
-    print "     Name: KayakoDisplayID"
-    print "     Type: Text"
-    print "Contact CustomField"
-    print "     Name: PhoneNumber"
-    print "     Type: Text"
-
-    if raw_input("Proceed (y/n)?") != y:
-        sys.exit()
-
 
     len_kayako_tickets = len(k_tickets)
-    fromticket = 1
-    #if fromticket > 1:
-        #k_tickets = k_tickets[fromticket:]
+    if fromticket > 1:
+        k_tickets = k_tickets[fromticket:]
 
 
     logfile = open('./kayako.log', 'a')
