@@ -176,7 +176,10 @@ class Tickets(object):
                 status_assignee_update = dict(status=status, staff=self.hf_admin['id'], assignee=assignee)
             else:
                 status_assignee_update = dict(status=status, staff=self.hf_admin['id'])
+            status_assignee_update_time = first_update.dateline + datetime.timedelta(seconds=1)
+            status_assignee_update['timestamp'] = status_assignee_update_time.strftime("%Y-%m-%dT%H:%M:%S")
 
+            #Now create the rest of the updates for the tickets
             hf_tkt_updates = list()
             for ku in kayako_ticketupdates[1:]:
                 hf_tkt_update = dict()
@@ -232,9 +235,6 @@ class Tickets(object):
                 ticketid = response.json()['id']
 
                 #Post update to set ticket status and assignee to kayako status and assignee
-                #status=self.hf_status[self.k_status[t.statusid]]
-                #assignee = self.hf_staff[self.k_staff[t.ownerstaffid]]
-                #status_assignee_update = dict(status=status, staff=self.hf_admin['id'], assignee=assignee)
                 endpoint = 'ticket/{0}/staff_update/'.format(ticketid)
                 postToHappyFox(endpoint, status_assignee_update)
 
