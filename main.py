@@ -259,10 +259,12 @@ class Tickets(object):
                     postToHappyFox(endpoint, pn)
 
                 print "Completed {0}/{1}".format(i, self.len_kayako_tickets)
+                successmsg = "Success {0} {1}".format(t.displayid, ticketid)
+                self.logfile.write(successmsg+'\n')
             except:
-                errmsg = "Ticket with Kayako display id {0} has failed".format(t.displayid)
-                print errmsg
-                self.logfile.write(t.displayid+'\n')
+                print "Failed {0}/{1}".format(i, self.len_kayako_tickets)
+                errmsg = "Failed {0}".format(t.displayid)
+                self.logfile.write(errmsg+'\n')
 
 def create_temporary_file(filename, contents):
     path = os.path.join(tempfile.gettempdir(), "KayakoImport", HF_API_KEY) + os.sep
