@@ -259,11 +259,11 @@ class Tickets(object):
                     postToHappyFox(endpoint, pn)
 
                 print "Completed {0}/{1}".format(i, self.len_kayako_tickets)
-                successmsg = "Success {0} {1}".format(t.displayid, ticketid)
+                successmsg = "Success {0} {1} {2}".format(t.displayid, ticketid, t.resolutiondue)
                 self.logfile.write(successmsg+'\n')
-            except:
+            except Exception as e:
                 print "Failed {0}/{1}".format(i, self.len_kayako_tickets)
-                errmsg = "Failed {0}".format(t.displayid)
+                errmsg = "Failed {0}. Exception: {1}".format(t.displayid, e)
                 self.logfile.write(errmsg+'\n')
 
 def create_temporary_file(filename, contents):
