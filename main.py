@@ -9,6 +9,8 @@ import json
 import sys
 import datetime
 import re
+import chardet
+import h2t
 
 from config import (KAYAKO_API_URL,
                     KAYAKO_API_KEY,
@@ -112,7 +114,8 @@ class Tickets(object):
                     k_departments,
                     fromticket,
                     len_kayako_tickets,
-                    logfile):
+                    logfile,
+		    due_date_logfile):
 
         self.hf_contacts = hf_contacts
         self.hf_categories = hf_categories
@@ -130,101 +133,111 @@ class Tickets(object):
         self.fromticket = fromticket
         self.len_kayako_tickets = len_kayako_tickets
         self.logfile = logfile#}}}
+        self.due_date_logfile = due_date_logfile#}}}
 
     def hCreateAllTickets(self):
         for i, t in enumerate(self.k_tickets, self.fromticket):
             print "Getting ticket updates..",
-            kayako_ticketupdates = kApi.get_all(TicketPost, t.id)
             try:
-                self.hf_contacts[t.email]
-            except KeyError:
-                response = postToHappyFox('users/', dict(name=t.fullname, email=t.email))
-                newhf_user = response.json()
-                self.hf_contacts[newhf_user['email']] = newhf_user['id']
-
-            hf_tkt = dict(created_at=t.creationtime.strftime("%Y-%m-%dT%H:%M:%S"),
-                            subject=t.subject,
-                            text=kayako_ticketupdates[0].contents,
-                            category=self.hf_categories[self.k_departments[t.departmentid]],
-                            priority=self.hf_priority[self.k_priority[t.ticketpriorityid]],
-                            user=self.hf_contacts[t.email])
-            hf_tkt['t-cf-1'] = t.displayid
-
-            #Get this tickets attachments
-            print "attachments..",
-            kayako_ticket_attachments = kApi.get_all(TicketAttachment, t.id)
-
-            #Dict of lists with the attachment tuples
-            happyfox_attachments = dict()
-
-            #Attachments to post during ticket creation
-            first_update = kayako_ticketupdates[0]
-            for attachment in kayako_ticket_attachments:
-                if first_update.id == attachment.ticketpostid:
-                    m = kApi.get(TicketAttachment, t.id, attachment.id)
-                    tempfile = create_temporary_file(m.filename, base64.b64decode(m.contents))
-                    tupfile = ('attachments', (m.filename, open(tempfile, 'rb'), m.filetype))
-                    if not happyfox_attachments.has_key(first_update.id):
-                        happyfox_attachments[first_update.id] = [tupfile]
-                    else:
-                        happyfox_attachments[first_update.id].append(tupfile)
-
-            #Create update to set ticket status and assignee to kayako status and assignee
-            status=self.hf_status[self.k_status[t.statusid]]
-            if self.k_staff.has_key(t.ownerstaffid):
-                assignee = self.hf_staff[self.k_staff[t.ownerstaffid]]
-                status_assignee_update = dict(status=status, staff=self.hf_admin['id'], assignee=assignee)
-            else:
-                status_assignee_update = dict(status=status, staff=self.hf_admin['id'])
-            status_assignee_update_time = first_update.dateline + datetime.timedelta(seconds=1)
-            status_assignee_update['timestamp'] = status_assignee_update_time.strftime("%Y-%m-%dT%H:%M:%S")
-
-            #Now create the rest of the updates for the tickets
-            hf_tkt_updates = list()
-            for ku in kayako_ticketupdates[1:]:
-                hf_tkt_update = dict()
-                if ku.staffid:
-                    hf_tkt_update['staff'] = self.hf_staff[self.k_staff[ku.staffid]]
+                kayako_ticketupdates = kApi.get_all(TicketPost, t.id)
+                try:
+                    self.hf_contacts[t.email]
+                except KeyError:
+                    response = postToHappyFox('users/', dict(name=t.fullname, email=t.email))
+                    newhf_user = response.json()
+                    self.hf_contacts[newhf_user['email']] = newhf_user['id']
+                
+                first_update = kayako_ticketupdates[0]
+                if first_update.ishtml:
+                    first_update_content = h2t.html2text(first_update.contents)
                 else:
-                    try:
-                        self.hf_contacts[ku.email]
-                    except KeyError:
-                        response = postToHappyFox('users/', dict(name=ku.fullname, email=ku.email))
-                        newhf_user = response.json()
-                        self.hf_contacts[newhf_user['email']] = newhf_user['id']
-                    hf_tkt_update['user'] = self.hf_contacts[ku.email]
+                    first_update_content = first_update.contents
+                hf_tkt = dict(created_at=t.creationtime.strftime("%Y-%m-%dT%H:%M:%S"),
+                                subject=t.subject,
+                                text=first_update_content,
+                                category=self.hf_categories[self.k_departments[t.departmentid]],
+                                priority=self.hf_priority[self.k_priority[t.ticketpriorityid]],
+                                user=self.hf_contacts[t.email])
+                hf_tkt['t-cf-1'] = t.displayid
 
-                hf_tkt_update['text'] = ku.contents
-                hf_tkt_update['timestamp'] = ku.dateline.strftime("%Y-%m-%dT%H:%M:%S")
-                hf_tkt_update['id'] = ku.id
+                #Get this tickets attachments
+                print "attachments..",
+                kayako_ticket_attachments = kApi.get_all(TicketAttachment, t.id)
 
-                hf_tkt_updates.append(hf_tkt_update)
+                #Dict of lists with the attachment tuples
+                happyfox_attachments = dict()
 
-
+                #Attachments to post during ticket creation
+                first_update = kayako_ticketupdates[0]
                 for attachment in kayako_ticket_attachments:
-                    if ku.id == attachment.ticketpostid:
-                        filename, filetype, contents = kGetTicketAttachment(t.id, attachment.id)
-                        tempfile = create_temporary_file(filename, base64.b64decode(contents))
-                        tupfile = ('attachments', (filename, open(tempfile, 'rb'), filetype))
-                        if not happyfox_attachments.has_key(ku.id):
-                            happyfox_attachments[ku.id] = [tupfile]
+                    if first_update.id == attachment.ticketpostid:
+                        m = kApi.get(TicketAttachment, t.id, attachment.id)
+                        tempfile = create_temporary_file(m.filename, base64.b64decode(m.contents))
+                        tupfile = ('attachments', (m.filename, open(tempfile, 'rb'), m.filetype))
+                        if not happyfox_attachments.has_key(first_update.id):
+                            happyfox_attachments[first_update.id] = [tupfile]
                         else:
-                            happyfox_attachments[ku.id].append(tupfile)
+                            happyfox_attachments[first_update.id].append(tupfile)
 
-            #Get all the ticket notes
-            print "notes.",
-            kayako_ticketnotes = kApi.get_all(TicketNote, t.id)
-            hf_pvt_notes = list()
-            for kn in kayako_ticketnotes:
-                hf_pvt_note = dict()
-                hf_pvt_note['staff'] = self.hf_staff[self.k_staff[kn.creatorstaffid]]
-                hf_pvt_note['text'] = kn.contents
-                hf_pvt_note['timestamp'] = kn.creationdate.strftime("%Y-%m-%dT%H:%M:%S")
+                #Create update to set ticket status and assignee to kayako status and assignee
+                status=self.hf_status[self.k_status[t.statusid]]
+                if self.k_staff.has_key(t.ownerstaffid):
+                    assignee = self.hf_staff[self.k_staff[t.ownerstaffid]]
+                    status_assignee_update = dict(status=status, staff=self.hf_admin['id'], assignee=assignee)
+                else:
+                    status_assignee_update = dict(status=status, staff=self.hf_admin['id'])
+                status_assignee_update_time = first_update.dateline + datetime.timedelta(seconds=1)
+                status_assignee_update['timestamp'] = status_assignee_update_time.strftime("%Y-%m-%dT%H:%M:%S")
 
-                hf_pvt_notes.append(hf_pvt_note)
+                #Now create the rest of the updates for the tickets
+                hf_tkt_updates = list()
+                for ku in kayako_ticketupdates[1:]:
+                    hf_tkt_update = dict()
+                    if ku.staffid:
+                        hf_tkt_update['staff'] = self.hf_staff[self.k_staff[ku.staffid]]
+                    else:
+                        try:
+                            self.hf_contacts[ku.email]
+                        except KeyError:
+                            response = postToHappyFox('users/', dict(name=ku.fullname, email=ku.email))
+                            newhf_user = response.json()
+                            self.hf_contacts[newhf_user['email']] = newhf_user['id']
+                        hf_tkt_update['user'] = self.hf_contacts[ku.email]
+
+                    if ku.ishtml:
+                        ku_content = h2t.html2text(ku.contents)
+                    else:
+                        ku_content = ku.contents
+                    hf_tkt_update['text'] = ku_content
+                    hf_tkt_update['timestamp'] = ku.dateline.strftime("%Y-%m-%dT%H:%M:%S")
+                    hf_tkt_update['id'] = ku.id
+
+                    hf_tkt_updates.append(hf_tkt_update)
 
 
-            try:
+                    for attachment in kayako_ticket_attachments:
+                        if ku.id == attachment.ticketpostid:
+                            filename, filetype, contents = kGetTicketAttachment(t.id, attachment.id)
+                            tempfile = create_temporary_file(filename, base64.b64decode(contents))
+                            tupfile = ('attachments', (filename, open(tempfile, 'rb'), filetype))
+                            if not happyfox_attachments.has_key(ku.id):
+                                happyfox_attachments[ku.id] = [tupfile]
+                            else:
+                                happyfox_attachments[ku.id].append(tupfile)
+
+                #Get all the ticket notes
+                print "notes.",
+                kayako_ticketnotes = kApi.get_all(TicketNote, t.id)
+                hf_pvt_notes = list()
+                for kn in kayako_ticketnotes:
+                    hf_pvt_note = dict()
+                    hf_pvt_note['staff'] = self.hf_staff[self.k_staff[kn.creatorstaffid]]
+                    hf_pvt_note['text'] = kn.contents
+                    hf_pvt_note['timestamp'] = kn.creationdate.strftime("%Y-%m-%dT%H:%M:%S")
+
+                    hf_pvt_notes.append(hf_pvt_note)
+
+
                 #Post the ticket first
                 print "Posting ticket..",
                 endpoint = 'tickets/'
@@ -260,7 +273,9 @@ class Tickets(object):
 
                 print "Completed {0}/{1}".format(i, self.len_kayako_tickets)
                 successmsg = "Success {0} {1} {2}".format(t.displayid, ticketid, t.resolutiondue)
+                due_datemsg = "{0} {1}".format(ticketid, t.resolutiondue)
                 self.logfile.write(successmsg+'\n')
+                self.due_date_logfile.write(due_datemsg+'\n')
             except Exception as e:
                 print "Failed {0}/{1}".format(i, self.len_kayako_tickets)
                 errmsg = "Failed {0}. Exception: {1}".format(t.displayid, e)
@@ -291,7 +306,7 @@ def hGetAllStaff():
     return happyfox_staff, admin
 
 #TODO: Fix contact custom field
-def hGetAllContacts(k_users):
+def hGetAllContacts(k_users, log_file):
     def gen_chunks(l, n):
         for i in range(0, len(l), n):
             yield l[i:i+n]
@@ -304,7 +319,11 @@ def hGetAllContacts(k_users):
                         json_kusers,
                         headers={"Content-Type": "application/json"})
         for contact in response.json():
-            happyfox_contacts[contact['email']] = contact['id']
+            if 'error' in contact:
+                errmsg = 'Failed contact creation for email: %s, Reason: %s' % (contact['email'], contact['error'])
+                log_file.write(errmsg+'\n')
+            else:
+                happyfox_contacts[contact['email']] = contact['id']
     return happyfox_contacts
 
 def hGetAllStatus():
@@ -334,12 +353,20 @@ def kGetAllStatus():
     return kayako_status
 
 #TODO: Fix contact custom field
+#TODO: Instead of looping for hard-coded times, find the pages and loop over correctly.
 def kGetAllUsers():
-    endpoint = '/Base/User/Filter'
+  marker = None
+  kayako_users = list()
+  for i in range(0,3):
+    if marker:
+        endpoint = '/Base/User/Filter/%s/1000' % marker
+    else:
+        endpoint = '/Base/User/Filter'
     response = getFromKayako(endpoint)
     users = xmltodict.parse(response.text)['users']['user']
-
-    kayako_users = list()
+    if marker and users:
+        users = users[1:]
+    print 'USERS COUNT: %s' % len(users)
     for i, u in enumerate(users, 1):
         ku = dict(u)
         emails = ku['email']
@@ -354,7 +381,9 @@ def kGetAllUsers():
                 else:
                     newuser['phones'] = [dict(type='m', number=userphone)]
             kayako_users.append(newuser)
-    return kayako_users
+        marker = ku['id']
+  print 'FINAL USERS COUNT: %s' % len(kayako_users)
+  return kayako_users
 
 def kGetAllDepartments():
     depts = kApi.get_all(Department)
@@ -383,6 +412,22 @@ def kGetTicketAttachment(ticketid, attachmentid):
     a = xmltodict.parse(response.text)['attachments']['attachment']
     fn, ft, c = a['filename'], a['filetype'], a['contents']
     response.close()
+    enc_type = chardet.detect(fn)['encoding']
+    if enc_type:
+        fn = fn.encode(enc_type)
+    else:
+        fn = str(fn)
+    enc_type = chardet.detect(ft)['encoding']
+    if enc_type:
+        ft = ft.encode(enc_type)
+    else:
+        ft = str(ft)
+    enc_type = chardet.detect(c)['encoding']
+    if enc_type:
+        c = c.encode(enc_type)
+    else:
+        c = str(c)
+
     return (fn, ft, c)
 
 def in_sync(k_dict, hf_dict):
@@ -519,8 +564,9 @@ def newmain():
         k_users = kGetAllUsers()
         putInShelve('k_users', k_users)
     hf_contacts = getFromShelve('hf_contacts')
+    logfile = open('./kayako.log', 'a')
     if not hf_contacts:
-        hf_contacts = hGetAllContacts(k_users)
+        hf_contacts = hGetAllContacts(k_users, logfile)
 
     """
     Kayako Tickets
@@ -537,7 +583,7 @@ def newmain():
         k_tickets = k_tickets[fromticket:]
 
 
-    logfile = open('./kayako.log', 'a')
+    due_date_logfile = open('./due_date.log', 'a')
     Tickets(hf_contacts,
                 hf_categories,
                 hf_staff,
@@ -551,8 +597,10 @@ def newmain():
                 k_departments,
                 fromticket,
                 len_kayako_tickets,
-                logfile).hCreateAllTickets()
+                logfile,
+		due_date_logfile).hCreateAllTickets()
     logfile.close()
+    due_date_logfile.close()
 
 def getFromShelve(varname):#{{{
     """
