@@ -1,3 +1,3 @@
-importerHF
+hf-kayako-importer
 
-Importer for importing from to our inhouse app
+Importer for importing from kayako to our inhouse app

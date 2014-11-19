@@ -146,7 +146,7 @@ class Tickets(object):
                     response = postToHappyFox('users/', dict(name=t.fullname, email=t.email))
                     newhf_user = response.json()
                     self.hf_contacts[newhf_user['email']] = newhf_user['id']
-                
+
                 first_update = kayako_ticketupdates[0]
                 if first_update.ishtml:
                     first_update_content = h2t.html2text(first_update.contents)
@@ -393,11 +393,30 @@ def kGetAllDepartments():
     return kayako_departments
 
 def kGetAllTickets(k_status, k_departments):
+    """
+    Gets only 20 tickets
+    """
+    class Tkt(object):
+        pass
+
     kayako_tickets = list()
     for d in k_departments:
-        for s in k_status.keys():
-            kayako_tickets.extend(kApi.get_all(Ticket, d, ticketstatusid=s))
+        endpoint = '/Tickets/Ticket/ListAll/{0}/-1/-1/-1/5/-1/-1/-1'.format(d)
+        response = getFromKayako(endpoint)
+        tkts = xmltodict.parse(response.text)['tickets']['ticket']
+        for t in tkt:
+            nt = Tkt()
+            for k in t.keys():
+                setattr(nt, k, t[k])
+            kayako_tickets.append(nt)
+        if len(kayako_tickets) >= 20:
+            break
     return kayako_tickets
+    #kayako_tickets = list()
+    #for d in k_departments:
+        #for s in k_status.keys():
+            #kayako_tickets.extend(kApi.get_all(Ticket, d, ticketstatusid=s))
+    #return kayako_tickets
 
 def kGetAllStaff():
     staff = kApi.get_all(Staff)
@@ -444,28 +463,6 @@ def requiredHFobjects(objects, plural):
         print o
 
 def newmain():
-    #print "All of these must be manually created on the happyfox instance before running this importer"
-    #print " - Categories (All categories must be public)"
-    #print " - Staff (All Staff must have different names)"
-    #print " - Status"
-    #print " - Priority"
-    #print " - Ticket custom field for kayako display id (Type: Text)"
-    #print ""
-
-    #print "Start from (b)eginning or (c)ontinue from where you left off?"
-    #start_or_continue = raw_input()
-    #if start_or_continue != 'b' or start_or_continue != 'c':
-        #sys.exit()
-    #if start_or_continue == 'b':
-        #fromticket = 1
-    #else:
-        #if start_or_continue == 'c' and len(sys.argv) == 2:
-            #fromticket = int(sys.argv[1])
-        #else:
-            #print "Enter ticket number from where to start"
-
-    #if raw_input("Proceed(y/n)?") != 'y':
-        #sys.exit()
     fromticket = 1
     if len(sys.argv) == 2:
         fromticket = int(sys.argv[1])
